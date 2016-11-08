@@ -1,13 +1,13 @@
-package ru.sbrf;
+package ru.sbrf.cache.impl;
 
+import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
 
-class ComposedKey {
-
+public class ComposedKey implements Serializable {
     private final String methodUuid;
     private final Object[] participants;
 
@@ -16,7 +16,7 @@ class ComposedKey {
         this.participants = participants;
     }
 
-    static ComposedKey of(Method method, Object[] participants) throws UnsupportedEncodingException {
+    public static ComposedKey of(Method method, Object[] participants) throws UnsupportedEncodingException {
         return new ComposedKey(UUID.nameUUIDFromBytes(method.getName().getBytes("UTF-8")).toString(), participants);
     }
 

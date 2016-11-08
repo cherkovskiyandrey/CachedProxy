@@ -1,4 +1,6 @@
-package ru.sbrf;
+package ru.sbrf.cache;
+
+import ru.sbrf.cache.impl.*;
 
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationHandler;
@@ -13,7 +15,7 @@ import java.util.function.Predicate;
 
 public class CachedProxy implements InvocationHandler {
     private final Object delegate;
-    private final ConcurrentMap<ComposedKey, Object> cache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Cacheable.Type, Cache<ComposedKey, Object>> cacheByType = new ConcurrentHashMap<>();
 
     private CachedProxy(Object delegate) {
         this.delegate = delegate;
@@ -27,49 +29,35 @@ public class CachedProxy implements InvocationHandler {
     }
 
     private static Class<?>[] getCachedInterfaces(Object delegate) {
-        final List<Class<?>> intrfaces = findAllClsByPredicate(delegate.getClass(), Class::isInterface);
+        final List<Class<?>> intrfaces = ScanUtils.findAllClsByPredicate(delegate.getClass(), Class::isInterface);
         return intrfaces.toArray(new Class<?>[0]);
-    }
-
-    private static List<Class<?>> findAllClsByPredicate(Class<?> base, Predicate<Class<?>> condition) {
-        final List<Class<?>> result = new ArrayList<>();
-        findAllClsByPredicateHelper(base, condition, result);
-        return result;
-    }
-
-    private static void findAllClsByPredicateHelper(Class<?> base, Predicate<Class<?>> condition, List<Class<?>> result) {
-        final Class<?>[] intrf = base.getInterfaces();
-        final Class<?> superCls = base.getSuperclass();
-
-        Arrays.stream(intrf)
-                .filter(condition::test)
-                .forEach(result::add);
-
-        if (superCls != null && condition.test(superCls)) {
-            result.add(superCls);
-        }
-
-        Arrays.stream(intrf)
-                .forEach(i -> findAllClsByPredicateHelper(i, condition, result));
-
-        if (superCls != null) {
-            findAllClsByPredicateHelper(superCls, condition, result);
-        }
     }
 
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-        if (!method.isAnnotationPresent(Cacheable.class)) {
+        final Cacheable metaInfo = method.getAnnotation(Cacheable.class);
+        if (metaInfo == null ||
+                method.getReturnType().equals(void.class) ||
+                method.getReturnType().equals(Void.class)) {
+            return method.invoke(delegate, args);
+        }
+
+        Cache<ComposedKey, Object> cache;
+        try {
+            cache = cacheByType.computeIfAbsent(metaInfo.value(), CacheFactory.INSTANCE::newInstance);
+        } catch (UnsupportedCacheTypeException ex) {
+            ex.printStackTrace();
             return method.invoke(delegate, args);
         }
 
         ComposedKey key;
         try {
-             key = ComposedKey.of(method, args);
+            key = ComposedKey.of(method, args);
         } catch (UnsupportedEncodingException ex) {
             ex.printStackTrace();
             return method.invoke(delegate, args);
         }
+
         return cache.computeIfAbsent(key, k -> {
             try {
                 return method.invoke(delegate, args);
